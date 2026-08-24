@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: bovasante-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CORS_ORIGINS
+        value: "*"
+
+  - type: web
+    name: bovasante-chatbot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+    startCommand: uvicorn main:app --app-dir chatbot_backend --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: ENCODERS_DIR
+        value: data_processed/encoders
+      - key: OUTPUT_DIR
+        value: data_processed
+      - key: GEMINI_API_KEY
+        sync: false

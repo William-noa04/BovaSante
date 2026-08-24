@@ -43,7 +43,7 @@ app = FastAPI(title="BovaSanté — Chatbot Vétérinaire")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # à restreindre en production (ex: URL du frontend Streamlit)
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
