@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Datasets & training artifacts (not needed to run the API in production)
+Cows datasets/
+data_processed/images_224/
+data_processed/images_index.csv
+data_processed/tabular_clean.csv
+data_processed/symptoms_clean.csv
+data_processed/*.png
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Office temp/lock files
+~$*
+*.tmp
