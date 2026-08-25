@@ -27,7 +27,13 @@ BOVINE_GATE_THRESHOLD = 0.15
 
 
 def decode_image_bytes(image_bytes: bytes) -> Image.Image:
-    return Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    image = Image.open(io.BytesIO(image_bytes))
+    # Les photos prises au téléphone (souvent 12 Mpx+) sont sinon décodées en JPEG
+    # pleine résolution avant d'être réduites à 224x224 juste après : un pic de
+    # mémoire inutile sur une instance à 512 Mo. draft() demande au décodeur JPEG
+    # de sortir directement une taille proche de la cible (no-op pour PNG/WEBP).
+    image.draft("RGB", IMG_SIZE)
+    return image.convert("RGB")
 
 
 def preprocess_image(image: Image.Image) -> torch.Tensor:
