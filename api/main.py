@@ -21,6 +21,57 @@ import torch
 import torch.nn.functional as F
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
+from fastapi import Query
+
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+# Nominatim exige un User-Agent identifiant l'app (politique d'usage OSM)
+OSM_USER_AGENT = "BovaSante/1.0 (contact: noafranck04@gmail.com)"
+
+
+@app.post("/veterinaires/search")
+async def search_veterinaires(payload: dict):
+    lat = payload.get("lat")
+    lon = payload.get("lon")
+    radius_meters = payload.get("radius_meters", 15000)
+    if lat is None or lon is None:
+        raise HTTPException(status_code=422, detail="lat et lon sont requis.")
+
+    query = (
+        f'[out:json][timeout:25];'
+        f'(node["amenity"="veterinary"](around:{radius_meters},{lat},{lon});'
+        f'way["amenity"="veterinary"](around:{radius_meters},{lat},{lon}););out center;'
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(
+                OVERPASS_URL,
+                data={"data": query},
+                headers={"User-Agent": OSM_USER_AGENT},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Erreur Overpass: {e}")
+
+    return response.json()
+
+
+@app.get("/veterinaires/geocode")
+async def geocode_place(q: str = Query(..., min_length=1)):
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            response = await client.get(
+                NOMINATIM_URL,
+                params={"format": "json", "limit": 1, "q": q},
+                headers={"User-Agent": OSM_USER_AGENT},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"Erreur Nominatim: {e}")
+
+    return response.json()
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from config import MAX_SYMPTOM_LEN

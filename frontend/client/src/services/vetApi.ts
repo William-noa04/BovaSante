@@ -1,10 +1,6 @@
 import type { GeocodeResult, Vet } from "@/types/vet";
 
-// APIs publiques OpenStreetMap, sans clé. Usage léger côté client (recherches
-// déclenchées par l'utilisateur, pas de scraping) — à faire passer par un
-// backend avec un User-Agent dédié avant un usage à grande échelle.
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const API_BASE = import.meta.env.VITE_PREDICTION_API_URL;
 
 export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const R = 6371;
@@ -34,9 +30,12 @@ interface OverpassElement {
 }
 
 export async function searchNearby(lat: number, lon: number, radiusMeters = 15000): Promise<Vet[]> {
-  const query = `[out:json][timeout:25];(node["amenity"="veterinary"](around:${radiusMeters},${lat},${lon});way["amenity"="veterinary"](around:${radiusMeters},${lat},${lon}););out center;`;
-  const response = await fetch(OVERPASS_URL, { method: "POST", body: `data=${encodeURIComponent(query)}` });
-  if (!response.ok) throw new Error(`overpass ${response.status}`);
+  const response = await fetch(`${API_BASE}/veterinaires/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lat, lon, radius_meters: radiusMeters }),
+  });
+  if (!response.ok) throw new Error(`veterinaires/search ${response.status}`);
   const data: { elements: OverpassElement[] } = await response.json();
 
   const origin = { lat, lon };
@@ -60,9 +59,8 @@ export async function searchNearby(lat: number, lon: number, radiusMeters = 1500
 }
 
 export async function geocodePlace(query: string): Promise<GeocodeResult> {
-  const url = `${NOMINATIM_URL}?format=json&limit=1&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`nominatim ${response.status}`);
+  const response = await fetch(`${API_BASE}/veterinaires/geocode?q=${encodeURIComponent(query)}`);
+  if (!response.ok) throw new Error(`geocode ${response.status}`);
   const results: { lat: string; lon: string; display_name: string }[] = await response.json();
   if (!results.length) throw new Error("not_found");
   return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), label: results[0].display_name };
