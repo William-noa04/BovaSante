@@ -67,6 +67,21 @@ export async function geocodePlace(query: string): Promise<GeocodeResult> {
 }
 
 /**
+ * Le tag OSM "phone" contient parfois plusieurs numéros (convention OSM : séparés
+ * par ";", parfois "," ou "/", ou juste un espace avant le "+" suivant) — ex.
+ * "+237 654 04 90 72;+237 698 01 42 81". Sans ce filtre, le nettoyage ne garde que
+ * les chiffres et les concatène en un seul numéro à rallonge, invalide (c'est ce
+ * qui produit un lien wa.me "not_found" : deux numéros collés bout à bout). On ne
+ * garde que le premier numéro.
+ */
+function firstPhoneSegment(phone: string): string {
+  let value = phone.split(/[;,/]/)[0].trim();
+  const secondPlus = value.indexOf("+", 1);
+  if (secondPlus > 0) value = value.slice(0, secondPlus);
+  return value.trim();
+}
+
+/**
  * Numéros OSM bruts, formats très variables : "+33 1 40 26 20 02", "0033146339231",
  * "01 46 33 92 31" (sans indicatif pays), parfois avec la notation "+33 (0)1 ..."
  * où le "(0)" ne fait PAS partie du numéro composable (il indique juste le 0 à
@@ -75,7 +90,7 @@ export async function geocodePlace(query: string): Promise<GeocodeResult> {
  * identifiable, sinon null.
  */
 function toE164(phone: string): string | null {
-  let value = phone.trim().replace(/\(0\)/gi, "");
+  let value = firstPhoneSegment(phone).replace(/\(0\)/gi, "");
   value = value.replace(/^00/, "+");
   if (!value.startsWith("+")) return null;
   const digits = value.slice(1).replace(/\D/g, "");
@@ -87,7 +102,7 @@ export function telHref(phone: string): string {
   if (intl) return `tel:${intl}`;
   // Pas d'indicatif pays identifiable : on garde le numéro local tel quel,
   // il reste composable depuis un téléphone du même pays (cas très majoritaire).
-  return `tel:${phone.trim().replace(/\(0\)/gi, "").replace(/[^\d+]/g, "")}`;
+  return `tel:${firstPhoneSegment(phone).replace(/\(0\)/gi, "").replace(/[^\d+]/g, "")}`;
 }
 
 /** null si le numéro n'a pas d'indicatif pays identifiable : un lien wa.me sans
