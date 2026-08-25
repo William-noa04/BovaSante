@@ -132,6 +132,11 @@ const fr = {
   "assistant.send": "Envoyer",
   "assistant.sendLabel": "Envoyer le message",
   "assistant.error.generic": "L’assistant ne peut pas répondre pour le moment.",
+  "assistant.newChat": "Nouvelle discussion",
+  "assistant.history": "Historique",
+  "assistant.history.empty": "Aucune conversation enregistrée pour le moment.",
+  "assistant.history.untitled": "Conversation",
+  "assistant.history.delete": "Supprimer cette conversation",
 
   "history.eyebrow": "Données locales",
   "history.title": "Historique des analyses",
@@ -302,6 +307,11 @@ const en: Record<keyof typeof fr, string> = {
   "assistant.send": "Send",
   "assistant.sendLabel": "Send the message",
   "assistant.error.generic": "The assistant can’t answer right now.",
+  "assistant.newChat": "New chat",
+  "assistant.history": "History",
+  "assistant.history.empty": "No saved conversations yet.",
+  "assistant.history.untitled": "Conversation",
+  "assistant.history.delete": "Delete this conversation",
 
   "history.eyebrow": "Local data",
   "history.title": "Analysis history",

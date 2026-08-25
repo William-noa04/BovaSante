@@ -1,10 +1,11 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useRoute, useSearch } from "wouter";
-import { Activity, AlertTriangle, Bot, Camera, ChevronRight, ClipboardList, CloudOff, LoaderCircle, MessageCircle, Send, ShieldCheck, Sparkles, Stethoscope, Upload, X } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Camera, ChevronRight, ClipboardList, CloudOff, History as HistoryIcon, LoaderCircle, MessageCircle, Plus, Send, ShieldCheck, Sparkles, Stethoscope, Trash2, Upload, X } from "lucide-react";
 import { predictionApi } from "@/services/predictionApi";
 import { chatbotApi } from "@/services/chatbotApi";
 import { ApiError } from "@/services/http";
 import { getAnalyses, saveAnalysis } from "@/lib/analysisStore";
+import { deleteConversation, getConversations, saveConversation, type StoredConversation } from "@/lib/chatStore";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { TranslationKey } from "@/lib/i18n";
 import type { ChatHistoryItem } from "@/types/chatbot";
@@ -149,7 +150,47 @@ function SimplifiedForm() {
 
   return <><p className="hint form-hint">{t("simplified.subtitle")}</p><form onSubmit={submit} className="analysis-form"><section className="panel"><h2>{t("simplified.knownSection")}</h2><div className="form-grid"><label className="field"><span>{t("simplified.age")}</span><input required type="number" min="0" value={age} placeholder={t("simplified.age.placeholder")} onChange={(e) => setAge(e.target.value)}/></label><label className="field"><span>{t("simplified.country")}</span><input required type="text" value={country} placeholder={t("simplified.country.placeholder")} onChange={(e) => setCountry(e.target.value)}/></label><label className="field"><span>{t("simplified.region")}</span><input required type="text" value={region} placeholder={t("simplified.region.placeholder")} onChange={(e) => setRegion(e.target.value)}/></label></div></section><section className="panel"><h2>{t("simplified.vaccinesSection")}</h2><div className="vaccine-grid">{VACCINE_FIELDS.map(([key, fr, en]) => <label key={key} className="field"><span>{lang === "fr" ? fr : en}</span><select value={vaccinesState[key]} onChange={(e) => setVaccinesState((v) => ({ ...v, [key]: e.target.value }))}><option value="0">{t("simplified.vaccine.unknown")}</option><option value="1">{t("field.yes")}</option></select></label>)}</div></section><section className="panel"><h2>{t("simplified.photoSection")}</h2><div className="form-grid"><label className="field wide"><span>{t("simplified.observed")}</span><textarea value={symptoms} onChange={(e) => setSymptoms(e.target.value)} placeholder={t("simplified.observed.placeholder")} required/></label></div><ImageDropzone preview={preview} onFile={setImageFile} onClear={() => { if (preview) URL.revokeObjectURL(preview); setImage(null); setPreview(null); }}/></section><button className="button primary submit" disabled={loading}>{loading ? <LoaderCircle className="spin"/> : <Sparkles/>}{loading ? t("analysis.submitting") : t("simplified.submit")}</button>{error && <p className="notice error" role="alert">{error}</p>}</form>{result && <PredictionResult result={result}/>}</>;
 }
-export function Assistant() { const { t } = useLanguage(); const search = useSearch(); const [history, setHistory] = useState<ChatHistoryItem[]>([]); const [message, setMessage] = useState(() => new URLSearchParams(search).get("q") ?? ""); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const items = useMemo(() => history.filter((item) => item.parts.some((part) => part.text)), [history]); async function submit(event: FormEvent) { event.preventDefault(); const text = message.trim(); if (!text || loading) return; setError(""); setLoading(true); try { const answer = await chatbotApi.send(text, history); setHistory(answer.history); setMessage(""); } catch (cause) { console.error(cause); setError(friendlyError(cause, t, "assistant.error.generic")); } finally { setLoading(false); } } return <div className="page assistant-page"><div className="page-title"><p className="eyebrow">{t("assistant.eyebrow")}</p><h1>{t("assistant.title")}</h1><p>{t("assistant.subtitle")}</p></div><section className="chat panel"><div className="messages">{items.length === 0 && <div className="welcome"><Bot/><h2>{t("assistant.welcome.title")}</h2><p>{t("assistant.welcome.text")}</p></div>}{items.map((item, index) => item.parts.filter((part) => part.text).map((part, partIndex) => <p key={`${index}-${partIndex}`} className={`bubble ${item.role === "user" ? "user" : "model"}`}>{part.text}</p>))}{loading && <p className="bubble model"><LoaderCircle className="spin"/> {t("assistant.pending")}</p>}</div>{error && <p className="notice error" role="alert">{error}</p>}<form className="chat-form" onSubmit={submit}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("assistant.placeholder")} aria-label={t("assistant.messageLabel")}/><button className="button primary" disabled={loading || !message.trim()} aria-label={t("assistant.sendLabel")}><Send/>{t("assistant.send")}</button></form></section></div>; }
+export function Assistant() {
+  const { t, lang } = useLanguage();
+  const search = useSearch();
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [history, setHistory] = useState<ChatHistoryItem[]>([]);
+  const [message, setMessage] = useState(() => new URLSearchParams(search).get("q") ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const items = useMemo(() => history.filter((item) => item.parts.some((part) => part.text)), [history]);
+
+  function persist(nextHistory: ChatHistoryItem[]) {
+    const firstUserText = nextHistory.find((item) => item.role === "user")?.parts.find((part) => part.text)?.text ?? "";
+    const now = new Date().toISOString();
+    const existing = conversationId ? getConversations().find((c) => c.id === conversationId) : undefined;
+    const id = conversationId ?? crypto.randomUUID();
+    if (!conversationId) setConversationId(id);
+    saveConversation({ id, title: (existing?.title || firstUserText).slice(0, 80), createdAt: existing?.createdAt ?? now, updatedAt: now, history: nextHistory });
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const text = message.trim();
+    if (!text || loading) return;
+    setError(""); setLoading(true);
+    try {
+      const answer = await chatbotApi.send(text, history);
+      setHistory(answer.history);
+      setMessage("");
+      persist(answer.history);
+    } catch (cause) { console.error(cause); setError(friendlyError(cause, t, "assistant.error.generic")); }
+    finally { setLoading(false); }
+  }
+
+  function newChat() { setHistory([]); setConversationId(null); setMessage(""); setError(""); setShowHistory(false); }
+  function toggleHistory() { if (!showHistory) setConversations(getConversations()); setShowHistory((v) => !v); }
+  function openConversation(conv: StoredConversation) { setHistory(conv.history); setConversationId(conv.id); setError(""); setShowHistory(false); }
+
+  return <div className="page assistant-page"><div className="page-title"><p className="eyebrow">{t("assistant.eyebrow")}</p><h1>{t("assistant.title")}</h1><p>{t("assistant.subtitle")}</p></div><div className="assistant-toolbar"><button type="button" className="button subtle" onClick={newChat}><Plus/>{t("assistant.newChat")}</button><button type="button" className="button subtle" onClick={toggleHistory}><HistoryIcon/>{t("assistant.history")}</button></div>{showHistory && <section className="panel conversation-list">{conversations.length === 0 ? <p className="hint">{t("assistant.history.empty")}</p> : conversations.map((conv) => <div key={conv.id} className={`conversation-row ${conv.id === conversationId ? "active" : ""}`} onClick={() => openConversation(conv)}><div><strong>{conv.title || t("assistant.history.untitled")}</strong><small>{new Date(conv.updatedAt).toLocaleString(lang === "fr" ? "fr-FR" : "en-US")}</small></div><button type="button" className="conversation-delete" onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); setConversations(getConversations()); if (conv.id === conversationId) newChat(); }} aria-label={t("assistant.history.delete")}><Trash2/></button></div>)}</section>}<section className="chat panel"><div className="messages">{items.length === 0 && <div className="welcome"><Bot/><h2>{t("assistant.welcome.title")}</h2><p>{t("assistant.welcome.text")}</p></div>}{items.map((item, index) => item.parts.filter((part) => part.text).map((part, partIndex) => <p key={`${index}-${partIndex}`} className={`bubble ${item.role === "user" ? "user" : "model"}`}>{part.text}</p>))}{loading && <p className="bubble model"><LoaderCircle className="spin"/> {t("assistant.pending")}</p>}</div>{error && <p className="notice error" role="alert">{error}</p>}<form className="chat-form" onSubmit={submit}><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("assistant.placeholder")} aria-label={t("assistant.messageLabel")}/><button className="button primary" disabled={loading || !message.trim()} aria-label={t("assistant.sendLabel")}><Send/>{t("assistant.send")}</button></form></section></div>;
+}
 
 export function History() { const { t } = useLanguage(); const [analyses] = useState(getAnalyses); return <div className="page"><div className="page-title"><p className="eyebrow">{t("history.eyebrow")}</p><h1>{t("history.title")}</h1><p>{t("history.subtitle")}</p></div><section className="panel">{analyses.length ? <div className="analysis-list">{analyses.map((analysis) => <AnalysisRow key={analysis.id} analysis={analysis}/>)}</div> : <Empty title={t("history.empty.title2")} text={t("history.empty.text2")} action={t("action.newAnalysis")} href="/analyse"/>}</section></div>; }
 export function CattleDetails() {
