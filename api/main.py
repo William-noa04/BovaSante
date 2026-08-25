@@ -48,7 +48,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Nominatim exige un User-Agent identifiant l'app (politique d'usage OSM)
 OSM_USER_AGENT = "BovaSante/1.0 (contact: noafranck04@gmail.com)"
@@ -247,18 +251,22 @@ async def search_veterinaires(payload: dict):
         f'way["amenity"="veterinary"](around:{radius_meters},{lat},{lon}););out center;'
     )
 
+    last_error = None
     async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            response = await client.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={"User-Agent": OSM_USER_AGENT},
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"Erreur Overpass: {e}")
+        for url in OVERPASS_URLS:
+            try:
+                response = await client.post(
+                    url,
+                    data={"data": query},
+                    headers={"User-Agent": OSM_USER_AGENT},
+                )
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                last_error = e
+                continue  # essaie le miroir suivant
 
-    return response.json()
+    raise HTTPException(status_code=502, detail=f"Erreur Overpass (tous les miroirs ont échoué): {last_error}")
 
 
 @app.get("/veterinaires/geocode")
