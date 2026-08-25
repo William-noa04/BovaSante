@@ -68,6 +68,13 @@ OVERPASS_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 OVERPASS_CACHE_TTL_SECONDS = 3600
 _overpass_cache: dict[tuple[float, float, int], tuple[float, dict]] = {}
 
+# Les IP partagées du plan gratuit Render sont rate-limitées/bloquées par les miroirs
+# Overpass publics (constaté : mêmes requêtes qui réussissent depuis une autre IP).
+# Geoapify (clé API, quota dédié) devient la source principale ; Overpass reste un
+# repli best-effort si la clé est absente ou si Geoapify est indisponible.
+GEOAPIFY_API_KEY = os.environ.get("GEOAPIFY_API_KEY")
+GEOAPIFY_PLACES_URL = "https://api.geoapify.com/v2/places"
+
 
 @app.on_event("startup")
 def load_models_on_startup():
@@ -248,6 +255,48 @@ def predict_tabular_only(tabular: TabularInput):
     )
 
 
+def _geoapify_to_elements(geojson: dict) -> dict:
+    """Convertit une réponse Geoapify Places au format {elements: [...]} déjà
+    consommé par le frontend (mêmes clés que la réponse Overpass : tags name/
+    addr:*/phone), pour ne rien changer côté client."""
+    elements = []
+    for idx, feature in enumerate(geojson.get("features", [])):
+        props = feature.get("properties", {})
+        lon, lat = feature.get("geometry", {}).get("coordinates", [None, None])
+        if lat is None or lon is None:
+            continue
+        tags = {}
+        if props.get("name"):
+            tags["name"] = props["name"]
+        if props.get("housenumber"):
+            tags["addr:housenumber"] = props["housenumber"]
+        if props.get("street"):
+            tags["addr:street"] = props["street"]
+        if props.get("city"):
+            tags["addr:city"] = props["city"]
+        contact = props.get("contact") if isinstance(props.get("contact"), dict) else {}
+        phone = contact.get("phone") or props.get("phone")
+        if phone:
+            tags["phone"] = phone
+        elements.append({"type": "node", "id": idx, "lat": lat, "lon": lon, "tags": tags})
+    return {"elements": elements}
+
+
+async def _search_geoapify(client: httpx.AsyncClient, lat: float, lon: float, radius_meters: int) -> dict:
+    response = await client.get(
+        GEOAPIFY_PLACES_URL,
+        params={
+            "categories": "pet.veterinary",
+            "filter": f"circle:{lon},{lat},{radius_meters}",
+            "bias": f"proximity:{lon},{lat}",
+            "limit": 50,
+            "apiKey": GEOAPIFY_API_KEY,
+        },
+    )
+    response.raise_for_status()
+    return _geoapify_to_elements(response.json())
+
+
 @app.post("/veterinaires/search")
 async def search_veterinaires(payload: dict):
     lat = payload.get("lat")
@@ -256,16 +305,26 @@ async def search_veterinaires(payload: dict):
     if lat is None or lon is None:
         raise HTTPException(status_code=422, detail="lat et lon sont requis.")
 
+    cache_key = (round(lat, 3), round(lon, 3), radius_meters)
+    cached = _overpass_cache.get(cache_key)
+
+    last_error = None
+
+    if GEOAPIFY_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
+                data = await _search_geoapify(client, lat, lon, radius_meters)
+            _overpass_cache[cache_key] = (time.monotonic(), data)
+            return data
+        except httpx.HTTPError as e:
+            last_error = e  # repli sur Overpass ci-dessous
+
     query = (
         f'[out:json][timeout:8];'
         f'(node["amenity"="veterinary"](around:{radius_meters},{lat},{lon});'
         f'way["amenity"="veterinary"](around:{radius_meters},{lat},{lon}););out center;'
     )
 
-    cache_key = (round(lat, 3), round(lon, 3), radius_meters)
-    cached = _overpass_cache.get(cache_key)
-
-    last_error = None
     async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
         for url in OVERPASS_URLS:
             try:
