@@ -13,7 +13,6 @@ Documentation interactive une fois lancé :
     http://127.0.0.1:8000/docs
 """
 
-import asyncio
 import json
 import sys
 import os
@@ -60,11 +59,11 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OSM_USER_AGENT = "BovaSante/1.0 (contact: noafranck04@gmail.com)"
 
 # Les instances publiques Overpass tombent souvent (surcharge/rate-limit) sans lien
-# avec notre code : on retente chaque miroir avant de passer au suivant, et on garde
-# en cache la dernière réponse valide par zone pour pouvoir la resservir si tous
-# les miroirs échouent au même moment (les véto ne bougent pas d'une requête à l'autre).
-OVERPASS_RETRIES_PER_MIRROR = 2
-OVERPASS_RETRY_DELAY_SECONDS = 1.5
+# avec notre code : on garde en cache la dernière réponse valide par zone pour pouvoir
+# la resservir si tous les miroirs échouent (les véto ne bougent pas d'une requête à
+# l'autre). Timeout volontairement court par miroir : le proxy de Render coupe la
+# requête bien avant que 3 tentatives lentes n'aient le temps de se terminer.
+OVERPASS_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 OVERPASS_CACHE_TTL_SECONDS = 3600
 _overpass_cache: dict[tuple[float, float, int], tuple[float, dict]] = {}
 
@@ -257,7 +256,7 @@ async def search_veterinaires(payload: dict):
         raise HTTPException(status_code=422, detail="lat et lon sont requis.")
 
     query = (
-        f'[out:json][timeout:25];'
+        f'[out:json][timeout:8];'
         f'(node["amenity"="veterinary"](around:{radius_meters},{lat},{lon});'
         f'way["amenity"="veterinary"](around:{radius_meters},{lat},{lon}););out center;'
     )
@@ -266,24 +265,21 @@ async def search_veterinaires(payload: dict):
     cached = _overpass_cache.get(cache_key)
 
     last_error = None
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
         for url in OVERPASS_URLS:
-            for attempt in range(OVERPASS_RETRIES_PER_MIRROR):
-                try:
-                    response = await client.post(
-                        url,
-                        data={"data": query},
-                        headers={"User-Agent": OSM_USER_AGENT},
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    _overpass_cache[cache_key] = (time.monotonic(), data)
-                    return data
-                except httpx.HTTPError as e:
-                    last_error = e
-                    if attempt < OVERPASS_RETRIES_PER_MIRROR - 1:
-                        await asyncio.sleep(OVERPASS_RETRY_DELAY_SECONDS)
-                    continue  # nouvelle tentative sur ce miroir, puis le suivant
+            try:
+                response = await client.post(
+                    url,
+                    data={"data": query},
+                    headers={"User-Agent": OSM_USER_AGENT},
+                )
+                response.raise_for_status()
+                data = response.json()
+                _overpass_cache[cache_key] = (time.monotonic(), data)
+                return data
+            except httpx.HTTPError as e:
+                last_error = e
+                continue  # essaie le miroir suivant
 
     if cached is not None:
         cached_at, data = cached
