@@ -14,6 +14,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BovaSanté" />
+    <script>
+      // Chrome peut émettre cet événement avant que React (et son écouteur) ne
+      // soit monté ; on le capture au plus tôt pour ne jamais le rater.
+      window.addEventListener("beforeinstallprompt", function (event) {
+        event.preventDefault();
+        window.__bovaInstallPrompt = event;
+      });
+    </script>
     <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

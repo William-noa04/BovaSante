@@ -9,6 +9,12 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+declare global {
+  interface Window {
+    __bovaInstallPrompt?: BeforeInstallPromptEvent;
+  }
+}
+
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches
     || (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -30,9 +36,12 @@ export function InstallPrompt() {
       setShowIosHint(true);
       return;
     }
+    if (window.__bovaInstallPrompt) setDeferred(window.__bovaInstallPrompt);
     function onBeforeInstall(event: Event) {
       event.preventDefault();
-      setDeferred(event as BeforeInstallPromptEvent);
+      const promptEvent = event as BeforeInstallPromptEvent;
+      window.__bovaInstallPrompt = promptEvent;
+      setDeferred(promptEvent);
     }
     function onInstalled() {
       setDeferred(null);
