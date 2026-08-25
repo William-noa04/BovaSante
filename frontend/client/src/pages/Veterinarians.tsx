@@ -109,6 +109,7 @@ function VetCard({ vet, t, selected, onSelect }: {
   const name = vet.name || t("vets.fallbackName");
   const distanceLabel = t("vets.distance").replace("{km}", vet.distanceKm.toFixed(1));
   const mapHref = `https://www.openstreetmap.org/?mlat=${vet.lat}&mlon=${vet.lon}#map=16/${vet.lat}/${vet.lon}`;
+  const whatsapp = vet.phone ? whatsappHref(vet.phone) : null;
 
   return (
     <div className={`vet-card ${selected ? "selected" : ""}`}>
@@ -121,9 +122,11 @@ function VetCard({ vet, t, selected, onSelect }: {
         {vet.phone ? (
           <>
             <a className="button primary" href={telHref(vet.phone)}><Phone />{t("vets.call")}</a>
-            <a className="button subtle" href={whatsappHref(vet.phone)} target="_blank" rel="noreferrer">
-              <MessageCircle />{t("vets.whatsapp")}
-            </a>
+            {whatsapp && (
+              <a className="button subtle" href={whatsapp} target="_blank" rel="noreferrer">
+                <MessageCircle />{t("vets.whatsapp")}
+              </a>
+            )}
           </>
         ) : (
           <a className="button subtle" href={mapHref} target="_blank" rel="noreferrer"><Navigation />{t("vets.directions")}</a>

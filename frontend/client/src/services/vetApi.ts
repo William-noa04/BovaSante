@@ -66,15 +66,33 @@ export async function geocodePlace(query: string): Promise<GeocodeResult> {
   return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), label: results[0].display_name };
 }
 
-function digitsOnly(phone: string): string {
-  const trimmed = phone.trim().replace(/^00/, "+");
-  return trimmed.replace(/[^\d+]/g, "");
+/**
+ * Numéros OSM bruts, formats très variables : "+33 1 40 26 20 02", "0033146339231",
+ * "01 46 33 92 31" (sans indicatif pays), parfois avec la notation "+33 (0)1 ..."
+ * où le "(0)" ne fait PAS partie du numéro composable (il indique juste le 0 à
+ * garder pour un appel national et à retirer pour un appel international).
+ * Renvoie le numéro au format E.164 ("+33146339231") si un indicatif pays est
+ * identifiable, sinon null.
+ */
+function toE164(phone: string): string | null {
+  let value = phone.trim().replace(/\(0\)/gi, "");
+  value = value.replace(/^00/, "+");
+  if (!value.startsWith("+")) return null;
+  const digits = value.slice(1).replace(/\D/g, "");
+  return digits.length >= 8 ? `+${digits}` : null;
 }
 
 export function telHref(phone: string): string {
-  return `tel:${digitsOnly(phone)}`;
+  const intl = toE164(phone);
+  if (intl) return `tel:${intl}`;
+  // Pas d'indicatif pays identifiable : on garde le numéro local tel quel,
+  // il reste composable depuis un téléphone du même pays (cas très majoritaire).
+  return `tel:${phone.trim().replace(/\(0\)/gi, "").replace(/[^\d+]/g, "")}`;
 }
 
-export function whatsappHref(phone: string): string {
-  return `https://wa.me/${digitsOnly(phone).replace(/\D/g, "")}`;
+/** null si le numéro n'a pas d'indicatif pays identifiable : un lien wa.me sans
+ * indicatif pointe vers un mauvais contact (ou aucun) au lieu d'échouer visiblement. */
+export function whatsappHref(phone: string): string | null {
+  const intl = toE164(phone);
+  return intl ? `https://wa.me/${intl.slice(1)}` : null;
 }
